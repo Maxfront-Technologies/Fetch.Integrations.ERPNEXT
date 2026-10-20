@@ -148,7 +148,15 @@ Every invoice line needs three FIRS codes. They live in three lists:
 - **FIRS HSN Code** holds the HS or service code, a description, and whether it is a Product or a Service.
 - **FIRS Quantity Code** holds the unit code, a title, and a description.
 
-The **Sync FIRS Codes** button on FETCH Settings starts a background job that downloads all three lists from FETCH and creates or updates the records. Today FETCH refuses API keys on its code-list endpoints, so the job stops with an "HTTP 401" message. Until FETCH accepts API keys there, enter the codes by hand or with **Data Import**.
+Lists show each record by its title or description. Invoices still send the code.
+
+A background job downloads the three lists from the FIRS e-invoicing API once a day and creates or updates the records:
+
+- Tax categories from `https://einvoice1.firs.gov.ng/api/v1/invoice/resources/tax-categories`
+- Quantity codes from `https://einvoice1.firs.gov.ng/api/v1/invoice/resources/invoice-quantity-codes`
+- HS codes from `https://einvoice1.firs.gov.ng/api/v1/invoice/resources/hs-codes`, stored as Products
+
+To load them straight after installing, click **Sync FIRS Codes** on FETCH Settings. The job never deletes a code FIRS drops, because Items may still link to it. FIRS gives no rate for most tax categories, and for those the job keeps the rate you entered. Errors are recorded in the Error Log under "FIRS code sync".
 
 Then open each Item and fill in the **FIRS e-Invoicing** section. Sales Invoice lines copy the codes from the Item, and you can change them on a line before you submit. The tax rate of the FIRS Tax Category must equal the rate the invoice charges, because FETCH adds the tax to each line at that rate.
 
@@ -221,7 +229,7 @@ Read its log with `docker logs --tail 50 <container>`. `ModuleNotFoundError: No 
 - If you cancel an earlier Payment Entry after a later one settled the invoice in ERPNext, the later payment still goes to FETCH as PAID for FETCH's whole balance. Check the balance in FETCH.
 - An amended invoice named `…-00001-1` and another named `…-000011` on the same date produce the same IRN in FETCH. ERPNext's default 5-digit naming series avoids this.
 - The cancel warning appears only when you cancel from the form. Cancelling from the list view skips it.
-- The FIRS code sync waits on FETCH accepting API keys on its code-list endpoints.
+- The FIRS code sync loads HS codes only. Add service codes by hand or with **Data Import**.
 - Every line goes to FETCH as a Service, so FETCH's catalogue lists goods as services. FETCH stock-checks Product lines, and the items it creates for ERPNext have no stock, so goods lines sent as Products would be refused. NRS never sees this field.
 - If FETCH answers HTTP 403 (plan limit) it has already stored the invoice but will not transmit it. Resending gets "already exists" and is recorded as Accepted, so transmit that invoice from FETCH once the plan allows it.
 - FETCH refuses a return dated after today in UTC. A return posted between midnight and 01:00 Lagos time fails until it is resent after 01:00.

@@ -1,9 +1,10 @@
-"""IRN callback, resend and payment integration tests: bench --site <site> run-tests --app fetch_einvoice."""
+"""IRN callback, resend, payment and FIRS code sync integration tests: bench --site <site> run-tests --app fetch_einvoice."""
 import hashlib
 import hmac
 import json
 import time
-from unittest.mock import call
+import unittest
+from unittest.mock import MagicMock, call, patch
 
 import frappe
 from werkzeug.test import EnvironBuilder
@@ -254,3 +255,66 @@ class TestResend(FetchTestCase):
 		outbox.send(row)
 		self.assertEqual(row_state(row).status, "Accepted")
 		self.assertEqual(fetch_status(si), "Submitted")
+
+
+FIRS_LISTS = {
+	"tax-categories": [
+		{"code": "TEST_SYNC_VAT", "value": "Test Sync Value-Added Tax", "percent": "7.5"},
+		{"code": "TEST_SYNC_GST", "value": "Test Sync Goods and Services Tax", "percent": "Not Available"},
+	],
+	"invoice-quantity-codes": [{"code": "TSQ", "name": "test sync box", "description": "A test box."}],
+	"hs-codes": [{"hscode": "9999.99", "description": "Test sync goods"}],
+}
+
+
+def firs_get(url, **kwargs):
+	return MagicMock(status_code=200, json=lambda: {"code": 200, "data": FIRS_LISTS[url.rsplit("/", 1)[1]]})
+
+
+class TestFirsCodeSync(unittest.TestCase):
+	def setUp(self):
+		frappe.set_user("Administrator")
+		for doctype, name in (("FIRS Tax Category", "TEST_SYNC_VAT"), ("FIRS Tax Category", "TEST_SYNC_GST"),
+				("FIRS Quantity Code", "TSQ"), ("FIRS HSN Code", "9999.99")):
+			frappe.delete_doc_if_exists(doctype, name)
+		patcher = patch("fetch_einvoice.api.requests.get", side_effect=firs_get)
+		self.get = patcher.start()
+		self.addCleanup(patcher.stop)
+
+	def test_sync_stores_the_firs_labels_as_titles_and_keeps_hand_entered_rates(self):
+		frappe.get_doc(dict(doctype="FIRS Tax Category", code="TEST_SYNC_GST", tax_rate=5)).insert()
+
+		api.run_firs_code_sync()
+
+		self.assertEqual(frappe.db.get_value("FIRS Tax Category", "TEST_SYNC_VAT", ["title", "tax_rate"]),
+			("Test Sync Value-Added Tax", 7.5))
+		self.assertEqual(frappe.db.get_value("FIRS Tax Category", "TEST_SYNC_GST", ["title", "tax_rate"]),
+			("Test Sync Goods and Services Tax", 5))
+		self.assertEqual(frappe.db.get_value("FIRS Quantity Code", "TSQ", ["title", "description"]),
+			("test sync box", "A test box."))
+		self.assertEqual(frappe.db.get_value("FIRS HSN Code", "9999.99", ["description", "kind"]),
+			("Test sync goods", "Product"))
+		for doctype, title in (("FIRS Tax Category", "title"), ("FIRS Quantity Code", "title"),
+				("FIRS HSN Code", "description")):
+			self.assertEqual(frappe.get_meta(doctype).title_field, title)
+
+	def test_a_second_sync_changes_nothing_and_a_changed_label_is_updated(self):
+		api.run_firs_code_sync()
+		modified = frappe.db.get_value("FIRS Quantity Code", "TSQ", "modified")
+
+		api.run_firs_code_sync()
+		self.assertEqual(frappe.db.get_value("FIRS Quantity Code", "TSQ", "modified"), modified)
+
+		FIRS_LISTS["hs-codes"][0]["description"] = "Test sync goods, renamed"
+		self.addCleanup(FIRS_LISTS["hs-codes"][0].update, description="Test sync goods")
+		api.run_firs_code_sync()
+		self.assertEqual(frappe.db.get_value("FIRS HSN Code", "9999.99", "description"), "Test sync goods, renamed")
+
+	def test_firs_error_stops_the_sync_and_is_logged(self):
+		self.get.side_effect = lambda url, **kwargs: MagicMock(status_code=503)
+		errors = frappe.db.count("Error Log")
+
+		api.run_firs_code_sync()
+
+		self.assertFalse(frappe.db.exists("FIRS Tax Category", "TEST_SYNC_VAT"))
+		self.assertEqual(frappe.db.count("Error Log"), errors + 1)

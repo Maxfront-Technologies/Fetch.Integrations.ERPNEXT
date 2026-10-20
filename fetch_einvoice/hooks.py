@@ -35,4 +35,5 @@ doc_events = {
 
 scheduler_events = {
 	"all": ["fetch_einvoice.outbox.sweep"],
+	"daily_long": ["fetch_einvoice.api.run_firs_code_sync"],
 }
