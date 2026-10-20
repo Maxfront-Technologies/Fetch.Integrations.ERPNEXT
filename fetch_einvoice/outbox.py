@@ -6,7 +6,7 @@ from decimal import Decimal
 import frappe
 import requests
 from frappe import _
-from frappe.utils import add_to_date, escape_html, getdate, now, now_datetime
+from frappe.utils import add_to_date, escape_html, get_datetime, getdate, now, now_datetime
 
 from fetch_einvoice import core, gather
 
@@ -44,12 +44,15 @@ def create(**fields):
 	return row.name
 
 
-def send(name):
-	"""Claim one Pending row, POST it to FETCH outside any transaction, then record the outcome."""
+def send(name, early=False):
+	"""Claim one due Pending row, POST it to FETCH outside any transaction, then record the outcome.
+
+	early sends it before next_attempt_at, because the IRN it was waiting for has arrived.
+	"""
 	settings = frappe.get_single(SETTINGS)
 	if not settings.enabled:
 		return
-	claimed = _claim(name)
+	claimed = _claim(name, early)
 	frappe.db.commit()
 	if not claimed:
 		return
@@ -78,18 +81,22 @@ def sweep():
 
 
 def wake(sales_invoice):
-	"""Send what the IRN of `sales_invoice` unblocked: its Pending payments, oldest first, and its credit notes."""
-	rows = frappe.db.sql_list(
-		"""select o.name from `tabFETCH Outbox` o
+	"""Send what the IRN of `sales_invoice` unblocked: its payments, oldest first, and its credit notes."""
+	# A Failed row with no attempts never reached FETCH: _claim failed it because this invoice had failed.
+	rows = frappe.db.sql(
+		"""select o.name, o.status from `tabFETCH Outbox` o
 		left join `tabSales Invoice` si on si.name = o.sales_invoice
-		where o.status = 'Pending' and (
+		where (o.status = 'Pending' or (o.status = 'Failed' and o.attempts = 0)) and (
 			(o.kind = 'Payment' and o.sales_invoice = %(si)s)
 			or (o.kind = 'Invoice' and si.return_against = %(si)s))
 		order by o.name""",
 		{"si": sales_invoice},
+		as_dict=True,
 	)
-	for name in rows:
-		send(name)
+	for row in rows:
+		if row.status == "Failed":
+			retry(row.name)
+		send(row.name, early=True)
 
 
 def retry(name):
@@ -135,16 +142,28 @@ def _transition(name, to, **fields):
 	return True
 
 
-def _claim(name):
+def _claim(name, early):
 	"""Pending → Sending with attempts + 1 and the payload stored. Returns (row, payload), or None for no HTTP call."""
 	row = frappe.db.get_value(OUTBOX, name, "*", as_dict=True, for_update=True)
 	if not row or "Sending" not in TRANSITIONS.get(row.status, ()):
 		return None
-	if frappe.db.get_value(row.reference_doctype, row.reference_name, "docstatus") == 2:
+	# A second job queued for the row, by the sweep while workers lag, must not cut its retry delay short.
+	if not early and row.next_attempt_at and get_datetime(row.next_attempt_at) > now_datetime():
+		return None
+	# With "Unlink Payment on Cancellation of Invoice", a payment's entry stays submitted after its invoice is cancelled.
+	if 2 in (
+		frappe.db.get_value(row.reference_doctype, row.reference_name, "docstatus"),
+		frappe.db.get_value("Sales Invoice", row.sales_invoice, "docstatus"),
+	):
 		cancel(name)
 		return None
 	kind = KINDS[row.kind]
-	waiting = kind.waiting_for(row)
+	try:
+		waiting = kind.waiting_for(row)
+	except Blocked as e:
+		# attempts stays 0, which is how wake finds the row again once the invoice gets its IRN.
+		_fail(row, str(e))
+		return None
 	if waiting:
 		# Not ready is not an attempt. The IRN callback wakes it sooner than this.
 		frappe.db.set_value(OUTBOX, name, {
@@ -152,19 +171,28 @@ def _claim(name):
 			"error": escape_html(waiting),
 		})
 		return None
+	# _record only applies the cap when it records FETCH's answer. A job that dies after its claim would loop for ever.
+	if row.attempts >= core.MAX_ATTEMPTS:
+		_fail(row, _("Stopped after {0} attempts. The last one ended without recording FETCH's answer; see the Error Log.")
+			.format(row.attempts))
+		return None
 	row.attempts += 1
 	try:
 		payload = kind.build(row)
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), "FETCH Outbox {0}".format(name))
-		if _transition(name, "Failed", attempts=row.attempts, error=str(e) or repr(e)) and row.kind == "Invoice":
-			_set_invoice_status(row.sales_invoice, "Failed")
+		_fail(row, str(e) or repr(e), attempts=row.attempts)
 		return None
 	if payload is None:
 		_transition(name, "Cancelled", error=_("FETCH already counts this invoice as PAID, so there is nothing to send."))
 		return None
 	_transition(name, "Sending", attempts=row.attempts, payload=json.dumps(payload))
 	return row, payload
+
+
+def _fail(row, error, **fields):
+	if _transition(row.name, "Failed", error=error, **fields) and row.kind == "Invoice":
+		_set_invoice_status(row.sales_invoice, "Failed")
 
 
 def _post(settings, path, payload):
@@ -211,20 +239,32 @@ def _set_invoice_status(sales_invoice, status):
 	)
 
 
+class Blocked(Exception):
+	"""The invoice a row waits for failed at FETCH, so its IRN will not come until someone resends it."""
+
+
 def _irn(sales_invoice):
 	return frappe.db.get_value("Sales Invoice", sales_invoice, "fetch_irn")
+
+
+def _raise_if_failed(sales_invoice):
+	if frappe.db.get_value(OUTBOX, {"kind": "Invoice", "sales_invoice": sales_invoice}, "status") == "Failed":
+		raise Blocked(_("{0} failed at FETCH, so it has no IRN. Resend {0}; this row is sent once {0} gets its IRN.").format(
+			sales_invoice))
 
 
 def _invoice_waiting_for(row):
 	original = frappe.db.get_value("Sales Invoice", row.sales_invoice, "return_against")
 	# An original sent before this app was installed has no row; FETCH matches it by ERP number instead.
 	if original and frappe.db.exists(OUTBOX, {"kind": "Invoice", "sales_invoice": original}) and not _irn(original):
+		_raise_if_failed(original)
 		return _("Waiting for {0}, the invoice this return is against, to get its IRN…").format(original)
 	return None
 
 
 def _payment_waiting_for(row):
 	if not _irn(row.sales_invoice):
+		_raise_if_failed(row.sales_invoice)
 		return _("Waiting for {0} to get its IRN…").format(row.sales_invoice)
 	earlier = frappe.db.get_value(OUTBOX, {
 		"kind": "Payment",

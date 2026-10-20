@@ -145,6 +145,11 @@ def row_state(name):
 	return frappe.db.get_value(OUTBOX, name, ["status", "attempts", "response_code", "next_attempt_at"], as_dict=True)
 
 
+def make_due(name):
+	"""Let time pass: the row's retry or wait delay is over."""
+	frappe.db.set_value(OUTBOX, name, "next_attempt_at", None)
+
+
 def fetch_status(si):
 	return frappe.db.get_value("Sales Invoice", si.name, "fetch_status")
 
@@ -229,6 +234,30 @@ class TestOutbox(FetchTestCase):
 		state = row_state(row)
 		self.assertEqual((state.status, state.attempts, state.response_code), ("Pending", 1, 0))
 		self.assertGreater(get_datetime(state.next_attempt_at), before)
+
+	def test_a_duplicate_job_does_not_send_before_the_retry_is_due(self):
+		si = make_invoice()
+		row = row_for("Invoice", si.name)
+		self.post.return_value = reply(500, "Internal Server Error")
+
+		outbox.send(row)
+		# The sweep queued the row again while workers lagged; that job runs right after the first.
+		outbox.send(row)
+
+		self.assertEqual(self.post.call_count, 1)
+		self.assertEqual(row_state(row).attempts, 1)
+
+	def test_a_row_that_used_every_attempt_fails_instead_of_sending(self):
+		si = make_invoice()
+		row = row_for("Invoice", si.name)
+		# Each earlier job died after its claim, so _record never applied the cap.
+		frappe.db.set_value(OUTBOX, row, "attempts", outbox.core.MAX_ATTEMPTS)
+
+		outbox.send(row)
+
+		self.post.assert_not_called()
+		self.assertEqual(row_state(row).status, "Failed")
+		self.assertEqual(fetch_status(si), "Failed")
 
 	def test_a_second_send_while_the_first_waits_on_fetch_makes_no_call(self):
 		si = make_invoice()

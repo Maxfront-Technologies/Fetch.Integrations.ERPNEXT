@@ -15,6 +15,7 @@ from fetch_einvoice.tests.test_outbox import (
 	OUTBOX,
 	FetchTestCase,
 	fetch_status,
+	make_due,
 	make_invoice,
 	make_payment,
 	reply,
@@ -170,6 +171,7 @@ class TestPayments(FetchTestCase):
 
 		# A recomputed payload would now say 40.00, so an unchanged retry proves the first one was frozen.
 		frappe.db.set_value(OUTBOX, first_row, "response_body", json.dumps({"outstandingBalance": 40.0}))
+		make_due(second_row)
 		outbox.send(second_row)
 
 		self.assertEqual(json.dumps(payload_sent(self.post, 2)), json.dumps(sent[1]))
@@ -195,6 +197,7 @@ class TestPayments(FetchTestCase):
 
 		first.cancel()
 		self.post.return_value = reply(202, json.dumps({"outstandingBalance": 87.5}))
+		make_due(second_row)
 		outbox.send(second_row)
 
 		self.assertEqual(row_state(first_row).status, "Cancelled")
@@ -204,6 +207,50 @@ class TestPayments(FetchTestCase):
 			(sent["paymentReference"], sent["paymentStatus"], sent["amount"]), (second.name + "-1", "PARTIAL", 20.0))
 		self.assertEqual(row_state(second_row).status, "Accepted")
 
+
+	def test_payments_of_a_failed_invoice_fail_then_go_once_it_gets_its_irn(self):
+		si = make_invoice()
+		invoice_row = row_for("Invoice", si.name)
+		self.post.return_value = reply(400, json.dumps({"message": "Customer TIN is invalid"}))
+		outbox.send(invoice_row)
+		pe = make_payment(si, 50)
+		payment_row = row_for("Payment", pe.name)
+		self.post.reset_mock()
+
+		outbox.send(payment_row)
+
+		self.post.assert_not_called()
+		state = row_state(payment_row)
+		self.assertEqual((state.status, state.attempts), ("Failed", 0))
+
+		api.resend_invoice(si.name)
+		self.post.return_value = reply(202)
+		outbox.send(invoice_row)
+		deliver(transmitted(si))
+		outbox.wake(si.name)
+
+		self.assertEqual(row_state(payment_row).status, "Accepted")
+		sent = payload_sent(self.post, -1)
+		self.assertEqual((sent["paymentReference"], sent["amount"]), (pe.name + "-1", 50.0))
+
+	def test_a_payment_whose_invoice_was_cancelled_is_not_sent(self):
+		si = make_invoice()
+		self.accept(si)
+		deliver(transmitted(si))
+		pe = make_payment(si, 50)
+		row = row_for("Payment", pe.name)
+		setting = "unlink_payment_on_cancellation_of_invoice"
+		self.addCleanup(frappe.db.set_value, "Accounts Settings", None, setting,
+			frappe.db.get_single_value("Accounts Settings", setting))
+		frappe.db.set_value("Accounts Settings", None, setting, 1)
+		# The setting unlinks the payment, so the Payment Entry stays submitted.
+		frappe.get_doc("Sales Invoice", si.name).cancel()
+		self.post.reset_mock()
+
+		outbox.send(row)
+
+		self.post.assert_not_called()
+		self.assertEqual(row_state(row).status, "Cancelled")
 
 	def test_payment_before_the_first_send_is_not_also_a_deposit(self):
 		si = make_invoice()

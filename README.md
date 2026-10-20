@@ -192,11 +192,11 @@ The **FETCH e-Invoicing** section of a Sales Invoice shows **FETCH Status**, **F
 
 To resend a Failed invoice, fix the problem and click **Resend to FETCH** on the invoice. You need permission to submit Sales Invoices.
 
-**FETCH Outbox** has one row per call to FETCH, with the request, the response and the last error. A row is Pending, Sending, Accepted, Failed or Cancelled. A System Manager can retry a Failed row with its **Retry** button. Timeouts, HTTP 429 and server errors are retried after 1, 5, 15, 60 and 240 minutes, and the row fails after 6 attempts.
+**FETCH Outbox** has one row per call to FETCH, with the request, the response and the last error. A row is Pending, Sending, Accepted, Failed or Cancelled. A System Manager can retry a Failed row with its **Retry** button. Timeouts, HTTP 429 and server errors are retried after 1, 5, 15, 60 and 240 minutes, and the row fails after 6 attempts, including attempts whose job crashed before it recorded FETCH's answer.
 
-Payments wait until their invoice has its IRN. Payments for one invoice go oldest first, and a Failed payment holds back the later ones for that invoice until you retry it or cancel its Payment Entry. If FETCH never answered, a retried payment resends exactly what was sent before. If FETCH refused it, the retry works out the amount and status again. A return waits until the original invoice has its IRN, unless the original was submitted before this app was installed.
+Payments wait until their invoice has its IRN. Payments for one invoice go oldest first, and a Failed payment holds back the later ones for that invoice until you retry it or cancel its Payment Entry. If FETCH never answered, a retried payment resends exactly what was sent before. If FETCH refused it, the retry works out the amount and status again. A return waits until the original invoice has its IRN, unless the original was submitted before this app was installed. If that invoice is Failed, its waiting payments and returns are marked Failed too, with an error that names it. Resend the invoice, and they go to FETCH by themselves once it has its IRN.
 
-Cancelling an invoice or payment that FETCH has accepted shows a warning and then goes ahead. The NRS document stays valid, so issue a credit note if one is needed. The amended invoice goes to FETCH as a new invoice. Cancelling stops every call that has not reached FETCH yet, and adds a comment that lists them.
+Cancelling an invoice or payment that FETCH has accepted shows a warning and then goes ahead. The NRS document stays valid, so issue a credit note if one is needed. The amended invoice goes to FETCH as a new invoice. Cancelling stops every call that has not reached FETCH yet, and adds a comment that lists them. Cancelling an invoice also stops its payments that haven't reached FETCH, even when **Unlink Payment on Cancellation of Invoice** leaves their Payment Entries submitted.
 
 ## Troubleshooting
 

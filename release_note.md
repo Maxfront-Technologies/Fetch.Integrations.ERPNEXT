@@ -64,7 +64,7 @@ The install adds these as Custom Fields. `bench migrate` applies them again each
 
 ### Payment Entry
 
-- **After submit.** A Payment Entry that receives money from a customer gets one Outbox row for each Sales Invoice it pays. Payments against returns are skipped, and so are payments for invoices submitted before the app was installed. A payment waits until its invoice has an IRN.
+- **After submit.** A Payment Entry that receives money from a customer gets one Outbox row for each Sales Invoice it pays. Payments against returns are skipped, and so are payments for invoices submitted before the app was installed. A payment waits until its invoice has an IRN. If the invoice is Failed, the payment is marked Failed too, and it goes by itself once the resent invoice has its IRN. A payment whose invoice is cancelled is not sent.
 - **On cancel.** Rows that haven't reached FETCH are cancelled. When FETCH has already recorded the payment, the form asks for confirmation first, because FETCH has no payment reversal.
 
 ### Tax rate sent to FETCH
