@@ -46,6 +46,36 @@ To update later, see [Update the app](#update-the-app).
 
 The install creates the FIRS doctypes, the FETCH doctypes, and the custom fields on Item, Sales Invoice Item, Customer and Sales Invoice. `bench migrate` re-applies the custom fields each time, and running it twice changes nothing.
 
+## Install on Docker (frappe_docker)
+
+In frappe_docker every service (backend, frontend, websocket, the workers, the scheduler and the configurator) runs from the image, and the configurator rewrites `sites/apps.txt` from the image's `apps` folder each time it starts. An app cloned into one running container is missing from the others, and drops out of `apps.txt` on the next start. Build an image that contains the app instead. The `Dockerfile` in this repository does that:
+
+```bash
+git clone https://github.com/Maxfront-Technologies/Fetch.Integrations.ERPNEXT fetch_einvoice
+cd fetch_einvoice
+docker build -t fetch-erpnext:v13.52.15 --build-arg ERPNEXT_IMAGE=frappe/erpnext:v13.52.15 .
+```
+
+Set `ERPNEXT_IMAGE` to the `frappe/erpnext` image your compose file uses today. Then edit the compose file:
+
+- Replace that image with `fetch-erpnext:v13.52.15` in every service that uses it.
+- Make a worker consume the `default` queue. Frappe v13 puts scheduled jobs and this app's calls to FETCH on `default`, and a stack with only `short` and `long` workers never runs them. Change the short worker's command to `bench worker --queue short,default`.
+
+Apply it from the compose file's folder:
+
+```bash
+docker compose up -d
+docker compose exec backend bench --site <site> install-app fetch_einvoice
+docker compose exec backend bench --site <site> migrate
+docker compose restart frontend
+```
+
+- Skip `install-app` if the app is already installed on the site.
+- `docker compose up -d` reruns the configurator, which now lists `fetch_einvoice` in `sites/apps.txt`.
+- The frontend restart is needed because its nginx looks up the backend's address only when it starts. See [the 502 entry under Troubleshooting](#nginx-502-connect-failed-111-connection-refused-on-docker).
+
+To update, pull the new code, rebuild the image with the same command, then run the four commands above without `install-app`.
+
 ## Update the app
 
 Run these from `frappe-bench`:
@@ -151,9 +181,35 @@ To resend a Failed invoice, fix the problem and click **Resend to FETCH** on the
 
 **FETCH Outbox** has one row per call to FETCH, with the request, the response and the last error. A row is Pending, Sending, Accepted, Failed or Cancelled. A System Manager can retry a Failed row with its **Retry** button. Timeouts, HTTP 429 and server errors are retried after 1, 5, 15, 60 and 240 minutes, and the row fails after 6 attempts.
 
-Payments wait until their invoice has its IRN. Payments for one invoice go oldest first, and a Failed payment holds back the later ones for that invoice until you retry it or cancel its Payment Entry. A retried payment sends exactly what was sent the first time. A return waits until the original invoice has its IRN, unless the original was submitted before this app was installed.
+Payments wait until their invoice has its IRN. Payments for one invoice go oldest first, and a Failed payment holds back the later ones for that invoice until you retry it or cancel its Payment Entry. If FETCH never answered, a retried payment resends exactly what was sent before. If FETCH refused it, the retry works out the amount and status again. A return waits until the original invoice has its IRN, unless the original was submitted before this app was installed.
 
 Cancelling an invoice or payment that FETCH has accepted shows a warning and then goes ahead. The NRS document stays valid, so issue a credit note if one is needed. The amended invoice goes to FETCH as a new invoice. Cancelling stops every call that has not reached FETCH yet, and adds a comment that lists them.
+
+## Troubleshooting
+
+### `KeyError: 'fetch_einvoice'` when opening FETCH Settings
+
+The web server's list of apps doesn't include `fetch_einvoice`, although the app is installed in the database. The error report's **App Versions** then lists only `erpnext` and `frappe`. Frappe builds that list from `sites/apps.txt` and caches it.
+
+1. From `frappe-bench`, run `cat -A sites/apps.txt`. Each app must be on its own line ending in `$`, and `fetch_einvoice` must be one of them. If it's missing, or joined to another app's line, fix the file.
+2. Run `bench --site <site> migrate`. In v13, `bench clear-cache` does not refresh the cached app list, but `migrate` does.
+3. Run `bench restart`, then reload the browser page. **App Versions** in an error report, or `bench --site <site> execute frappe.utils.change_log.get_versions`, now lists `fetch_einvoice`.
+
+If the line disappears again, something rewrites `sites/apps.txt`. In a Docker setup based on frappe_docker, the configurator rewrites it from the image's `apps` folder each time the containers start, so the app has to be built into the image. See [Install on Docker](#install-on-docker-frappe_docker).
+
+### Nginx 502 "connect() failed (111: Connection refused)" on Docker
+
+The frontend's nginx looks up the `backend` address once, when it starts. When the backend container restarts and comes back on a different address, nginx keeps calling the old one and every page returns 502. Compare the backend's current address with the `upstream:` address in the nginx error:
+
+```bash
+docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' <backend container>
+```
+
+If they differ, restart only the frontend with `docker restart <frontend container>`. If the backend container itself keeps restarting, read `docker logs --tail 50 <backend container>` instead.
+
+### The scheduler or a worker container keeps restarting
+
+Read its log with `docker logs --tail 50 <container>`. `ModuleNotFoundError: No module named 'fetch_einvoice'` means `sites/apps.txt` lists the app but that container's image doesn't contain it. Build the app into the image as described in [Install on Docker](#install-on-docker-frappe_docker).
 
 ## Known gaps
 
