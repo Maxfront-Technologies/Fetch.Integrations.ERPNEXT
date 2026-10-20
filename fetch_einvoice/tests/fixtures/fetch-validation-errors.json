@@ -1,0 +1,129 @@
+{
+  "status": "error",
+  "errors": [
+    {
+      "field": "irn",
+      "message": "Invoice reference number (IRN) is required."
+    },
+    {
+      "field": "dueDate",
+      "message": "Due date must be on or after issue date."
+    },
+    {
+      "field": "invoiceTypeCode",
+      "message": "Invoice type code is required."
+    },
+    {
+      "field": "paymentStatus",
+      "message": "Payment status must be one of PENDING, PARTIAL, PAID, or REJECTED."
+    },
+    {
+      "field": "documentCurrencyCode",
+      "message": "Unsupported currency code."
+    },
+    {
+      "field": "paymentMeansCode",
+      "message": "Unsupported payment means code."
+    },
+    {
+      "field": "deposit",
+      "message": "Deposit must be zero or greater."
+    },
+    {
+      "field": "accountingCustomerParty.tin",
+      "message": "Customer TIN is required."
+    },
+    {
+      "field": "accountingCustomerParty.partyName",
+      "message": "Customer party name is required."
+    },
+    {
+      "field": "accountingCustomerParty.email",
+      "message": "Invalid email format."
+    },
+    {
+      "field": "accountingCustomerParty.telephone",
+      "message": "Telephone must include international dialing code, for example +2348033456789."
+    },
+    {
+      "field": "accountingCustomerParty.postalAddress.streetName",
+      "message": "Customer street name is required."
+    },
+    {
+      "field": "accountingCustomerParty.postalAddress.cityName",
+      "message": "Customer city is required."
+    },
+    {
+      "field": "accountingCustomerParty.postalAddress.country",
+      "message": "Country must be a two-letter ISO code."
+    },
+    {
+      "field": "lineItems[0].productCategory",
+      "message": "Product category is required."
+    },
+    {
+      "field": "lineItems[0].name",
+      "message": "Line item name is required."
+    },
+    {
+      "field": "lineItems[0].description",
+      "message": "Line item description is required."
+    },
+    {
+      "field": "lineItems[0].hsnCode",
+      "message": "HSN code is required."
+    },
+    {
+      "field": "lineItems[0].priceUnit",
+      "message": "Price unit is required."
+    },
+    {
+      "field": "lineItems[0].quantity",
+      "message": "Quantity must be greater than zero."
+    },
+    {
+      "field": "lineItems[0]",
+      "message": "Invoiced quantity must be positive and monetary values must be non-negative."
+    },
+    {
+      "field": "lineItems[0]",
+      "message": "Percentage rates must be between zero and 100."
+    },
+    {
+      "field": "lineItems[0].unitPrice",
+      "message": "Unit price must be zero or greater."
+    },
+    {
+      "field": "lineItems[0].taxRate",
+      "message": "Tax rate must be between 0 and 100."
+    },
+    {
+      "field": "lineItems[0].discountValue",
+      "message": "Discount value must be zero or greater."
+    },
+    {
+      "field": "lineItems[0].discountType",
+      "message": "Discount type must be Percent or Flat."
+    },
+    {
+      "field": "lineItems[0].taxCategory",
+      "message": "Tax category must use uppercase letters and underscores."
+    },
+    {
+      "field": "invoiceLine[0].externalLineReference",
+      "message": "Reference must contain between 1 and 200 characters."
+    },
+    {
+      "field": "invoiceLine[0].originalExternalLineReference",
+      "message": "Original line references are only supported on Credit Notes."
+    },
+    {
+      "field": "invoiceLine[2].externalLineReference",
+      "message": "ERP row references must be unique within the document."
+    },
+    {
+      "field": "legalMonetaryTotal",
+      "message": "Total amount does not match the tax-inclusive line item totals."
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+	"name": "ACC-SINV-2026-00006",
+	"posting_date": "2026-10-20",
+	"posting_time": "08:10:00",
+	"due_date": "2026-10-20",
+	"currency": "NGN",
+	"remarks": "One widget returned",
+	"is_return": true,
+	"is_debit_note": false,
+	"return_against": "ACC-SINV-2026-00001",
+	"return_against_date": "2026-10-19",
+	"grand_total": "-1075.00",
+	"outstanding_amount": "-1075.00",
+	"payment_mode_types": [],
+	"customer": {"name": "Adaeze Stores Ltd", "tin": "23456789-0001", "email": "accounts@adaeze.example", "phone": "0803 123 4567", "business_description": "Retail of household goods"},
+	"address": {"line1": "12 Marina Road", "line2": "Suite 4", "city": "Lagos", "state": "Lagos", "pincode": "101233", "country_code": "ng"},
+	"taxes": [{"charge_type": "On Net Total", "rate": "7.5", "included_in_print_rate": false}],
+	"lines": [
+		{"row_name": "b6f3c5d7e1", "item_code": "WIDGET-01", "item_name": "Steel Widget", "description": "<div><p>Steel widget, <b>zinc</b> plated &amp; boxed</p></div>", "item_group": "Hardware", "qty": "-1", "net_amount": "-1000.00", "original_row_name": "c1a8f0e2d1", "hsn_code": "8479.89", "hsn_kind": "Product", "tax_category": "STANDARD_VAT", "tax_rate": "7.5", "quantity_code": "EA"}
+	]
+}

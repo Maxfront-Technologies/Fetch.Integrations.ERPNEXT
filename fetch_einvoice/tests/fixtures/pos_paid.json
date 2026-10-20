@@ -1,0 +1,21 @@
+{
+	"name": "ACC-PSINV-2026-00001",
+	"posting_date": "2026-10-19",
+	"posting_time": "17:20:45.000001",
+	"due_date": "2026-10-19",
+	"currency": "NGN",
+	"remarks": "POS sale",
+	"is_return": false,
+	"is_debit_note": false,
+	"return_against": null,
+	"return_against_date": null,
+	"grand_total": "537.50",
+	"outstanding_amount": "0.00",
+	"payment_mode_types": ["Cash"],
+	"customer": {"name": "Walk-in Customer Ltd", "tin": "34567890-0001", "email": "till@walkin.example", "phone": "+2348091112222", "business_description": ""},
+	"address": {"line1": "3 Allen Avenue", "line2": "", "city": "Ikeja", "state": "Lagos", "pincode": "100271", "country_code": "NG"},
+	"taxes": [{"charge_type": "On Net Total", "rate": "7.5", "included_in_print_rate": true}],
+	"lines": [
+		{"row_name": "c7a4d6e8f1", "item_code": "BULB-04", "item_name": "LED Bulb", "description": "LED bulb, 9 W", "item_group": "Hardware", "qty": "5", "net_amount": "500.00", "original_row_name": null, "hsn_code": "8539.52", "hsn_kind": "Product", "tax_category": "STANDARD_VAT", "tax_rate": "7.5", "quantity_code": "EA"}
+	]
+}

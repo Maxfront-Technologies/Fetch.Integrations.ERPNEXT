@@ -1,0 +1,21 @@
+{
+	"name": "ACC-SINV-2026-00002",
+	"posting_date": "2026-10-19",
+	"posting_time": "11:00:00",
+	"due_date": "2026-10-19",
+	"currency": "NGN",
+	"remarks": "10% off the list price of 1000.00",
+	"is_return": false,
+	"is_debit_note": false,
+	"return_against": null,
+	"return_against_date": null,
+	"grand_total": "2902.50",
+	"outstanding_amount": "2902.50",
+	"payment_mode_types": [],
+	"customer": {"name": "Adaeze Stores Ltd", "tin": "23456789-0001", "email": "accounts@adaeze.example", "phone": "+234 803 123 4567", "business_description": ""},
+	"address": {"line1": "12 Marina Road", "line2": "", "city": "Lagos", "state": "Lagos", "pincode": "", "country_code": "NG"},
+	"taxes": [{"charge_type": "On Net Total", "rate": "7.5", "included_in_print_rate": false}],
+	"lines": [
+		{"row_name": "d2b9e1f3a1", "item_code": "WIDGET-01", "item_name": "Steel Widget", "description": "Steel widget", "item_group": "Hardware", "qty": "3", "net_amount": "2700.00", "original_row_name": null, "hsn_code": "8479.89", "hsn_kind": "Product", "tax_category": "STANDARD_VAT", "tax_rate": "7.5", "quantity_code": "EA"}
+	]
+}

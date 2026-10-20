@@ -1,0 +1,18 @@
+include MANIFEST.in
+include requirements.txt
+include *.json
+include *.md
+include *.py
+include *.txt
+recursive-include fetch_einvoice *.css
+recursive-include fetch_einvoice *.csv
+recursive-include fetch_einvoice *.html
+recursive-include fetch_einvoice *.ico
+recursive-include fetch_einvoice *.js
+recursive-include fetch_einvoice *.json
+recursive-include fetch_einvoice *.md
+recursive-include fetch_einvoice *.png
+recursive-include fetch_einvoice *.py
+recursive-include fetch_einvoice *.svg
+recursive-include fetch_einvoice *.txt
+recursive-exclude fetch_einvoice *.pyc

@@ -1,0 +1,23 @@
+{
+	"name": "ACC-SINV-2026-00004",
+	"posting_date": "2026-10-19",
+	"posting_time": "13:45:10",
+	"due_date": "2026-11-18",
+	"currency": "NGN",
+	"remarks": "",
+	"is_return": false,
+	"is_debit_note": false,
+	"return_against": null,
+	"return_against_date": null,
+	"grand_total": "1790.00",
+	"outstanding_amount": "1790.00",
+	"payment_mode_types": ["Bank"],
+	"customer": {"name": "Adaeze Stores Ltd", "tin": "23456789-0001", "email": "accounts@adaeze.example", "phone": "0803 123 4567", "business_description": "Retail of household goods"},
+	"address": {"line1": "12 Marina Road", "line2": "Suite 4", "city": "Lagos", "state": "Lagos", "pincode": "101233", "country_code": "NG"},
+	"taxes": [{"charge_type": "On Net Total", "rate": "7.5", "included_in_print_rate": false}],
+	"lines": [
+		{"row_name": "f4d1a3b5c1", "item_code": "WIDGET-01", "item_name": "Steel Widget", "description": "Steel widget", "item_group": "Hardware", "qty": "4", "net_amount": "1000.00", "original_row_name": null, "hsn_code": "8479.89", "hsn_kind": "Product", "tax_category": "STANDARD_VAT", "tax_rate": "7.5", "quantity_code": "EA"},
+		{"row_name": "f4d1a3b5c2", "item_code": "BOOK-03", "item_name": "Maintenance Manual", "description": "Printed maintenance manual", "item_group": "Books", "qty": "1", "net_amount": "500.00", "original_row_name": null, "hsn_code": "4901.99", "hsn_kind": "Product", "tax_category": "ZERO_RATED", "tax_rate": "0", "quantity_code": "EA"},
+		{"row_name": "f4d1a3b5c3", "item_code": "BRACKET-02", "item_name": "Wall Bracket", "description": "Wall bracket", "item_group": "Hardware", "qty": "2", "net_amount": "200.00", "original_row_name": null, "hsn_code": "7326.90", "hsn_kind": "Product", "tax_category": "STANDARD_VAT", "tax_rate": "7.5", "quantity_code": "EA"}
+	]
+}
