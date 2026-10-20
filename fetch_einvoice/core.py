@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 COMMERCIAL_INVOICE = "381"  # Invoices/InvoiceTypes.cs:5
 CREDIT_NOTE = "380"  # Invoices/InvoiceTypes.cs:6
@@ -64,6 +64,7 @@ class TaxRow:
 	charge_type: str
 	rate: Decimal
 	included_in_print_rate: bool
+	account_head: str
 
 
 @dataclass(frozen=True)
@@ -79,7 +80,8 @@ class Line:
 	hsn_code: Optional[str]
 	hsn_kind: Optional[str]
 	tax_category: Optional[str]
-	tax_rate: Optional[Decimal]
+	category_rate: Optional[Decimal]
+	item_tax_rates: Dict[str, Decimal]
 	quantity_code: Optional[str]
 
 
@@ -148,11 +150,21 @@ def _json_qty(qty: Decimal):
 	return int(qty) if qty == qty.to_integral_value() else float(qty)
 
 
-def _line_amounts(line: Line) -> Tuple[Decimal, Decimal, Decimal, Decimal]:
+def charged_rate(line: Line, taxes: Tuple[TaxRow, ...]) -> Decimal:
+	"""The tax rate ERPNext charges on this line, across every On Net Total row."""
+	# The Item Tax Template's rate for a row's account replaces the row's rate (taxes_and_totals.py _get_tax_rate).
+	return sum((line.item_tax_rates.get(t.account_head, t.rate) for t in taxes if t.charge_type == "On Net Total"), ZERO)
+
+
+def _line_amounts(line: Line, taxes: Tuple[TaxRow, ...]) -> Tuple[Decimal, Decimal, Decimal, Decimal]:
 	"""(qty, net, rate, tax) as positive values; gross = net + tax."""
 	net = abs(_money(line.net_amount))
-	rate = line.tax_rate if line.tax_rate is not None else ZERO
+	rate = charged_rate(line, taxes)
 	return abs(line.qty), net, rate, _money(net * rate / 100)
+
+
+def _percent(rate: Decimal) -> str:
+	return "{:f}".format(rate.normalize())
 
 
 def _row_label(inv: Invoice, index: int) -> str:
@@ -168,7 +180,7 @@ def build_invoice_payload(inv: Invoice) -> dict:
 	groups = {}
 	total_net = total_tax = ZERO
 	for line in inv.lines:
-		qty, net, rate, tax = _line_amounts(line)
+		qty, net, rate, tax = _line_amounts(line, inv.taxes)
 		# Invoice lines are tax-inclusive (ErpMasterDataUpserter.cs:107-126), but credit notes are reconciled against
 		# the original's stored tax-exclusive line values (CreditNoteService.cs:523-524).
 		amount = net if credit else net + tax
@@ -534,7 +546,7 @@ _ROW_TEXT = {
 	"Quantity must be a whole number.": "quantity {qty} isn't a whole number. FETCH only accepts whole quantities.",
 	"Quantity must be greater than zero.": "quantity must be at least 1.",
 	"Invoiced quantity must be positive and monetary values must be non-negative.": "quantity must be at least 1.",
-	"Tax rate must be between 0 and 100.": "FIRS Tax Category {category} has a rate of {rate}%. It must be between 0 and 100.",
+	"Tax rate must be between 0 and 100.": "the invoice charges {rate}% tax on this item. It must be between 0 and 100.",
 	"Tax category must use uppercase letters and underscores.":
 		"FIRS Tax Category code {category} must use only capital letters and underscores, for example STANDARD_VAT.",
 	"Reference must contain between 1 and 200 characters.": "its row ID must be 1 to 200 characters long.",
@@ -605,8 +617,12 @@ def invoice_problems(inv: Invoice) -> List[str]:
 	for index, line in enumerate(inv.lines):
 		if not inv.is_return and (line.qty < 0 or line.net_amount < 0):
 			problems.append("{}: the amount is negative. Only a return can have negative amounts.".format(_row_label(inv, index)))
-		if line.tax_category and line.tax_rate is None:
-			problems.append("{}: FIRS Tax Category {} has no tax rate.".format(_row_label(inv, index), line.tax_category))
+		rate = charged_rate(line, inv.taxes)
+		if line.category_rate is not None and line.category_rate != rate:
+			problems.append(
+				"{}: FIRS Tax Category {} is {}%, but the invoice charges {}% on this item. Fix the rate in Sales Taxes "
+				"and Charges or the Item Tax Template, or pick the FIRS Tax Category that matches.".format(
+					_row_label(inv, index), line.tax_category, _percent(line.category_rate), _percent(rate)))
 
 	payload = build_invoice_payload(inv)
 	for field, message in _fetch_errors(payload):
@@ -618,8 +634,7 @@ def invoice_problems(inv: Invoice) -> List[str]:
 	tolerance = max(CENT, HALF_CENT * (len(inv.lines) + len(inv.taxes)))
 	if inv.lines and abs(payable - abs(inv.grand_total)) > tolerance:
 		problems.append(
-			"Grand Total {} doesn't match the items plus tax at their FIRS Tax Category rates ({}). "
-			"Check that each item's FIRS Tax Category rate is the rate the invoice charges.".format(abs(inv.grand_total), payable))
+			"Grand Total {} doesn't match the items plus their tax ({}).".format(abs(inv.grand_total), payable))
 	return problems
 
 

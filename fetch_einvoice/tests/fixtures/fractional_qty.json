@@ -14,8 +14,8 @@
 	"payment_mode_types": [],
 	"customer": {"name": "Adaeze Stores Ltd", "tin": "23456789-0001", "email": "accounts@adaeze.example", "phone": "0803 123 4567", "business_description": "Retail of household goods"},
 	"address": {"line1": "12 Marina Road", "line2": "Suite 4", "city": "Lagos", "state": "Lagos", "pincode": "101233", "country_code": "NG"},
-	"taxes": [{"charge_type": "On Net Total", "rate": "7.5", "included_in_print_rate": false}],
+	"taxes": [{"charge_type": "On Net Total", "rate": "7.5", "included_in_print_rate": false, "account_head": "VAT - MX"}],
 	"lines": [
-		{"row_name": "e9c6f8a0b1", "item_code": "CABLE-05", "item_name": "Copper Cable", "description": "Copper cable, sold by the metre", "item_group": "Hardware", "qty": "1.5", "net_amount": "1500.00", "original_row_name": null, "hsn_code": "8544.49", "hsn_kind": "Product", "tax_category": "STANDARD_VAT", "tax_rate": "7.5", "quantity_code": "MTR"}
+		{"row_name": "e9c6f8a0b1", "item_code": "CABLE-05", "item_name": "Copper Cable", "description": "Copper cable, sold by the metre", "item_group": "Hardware", "qty": "1.5", "net_amount": "1500.00", "original_row_name": null, "hsn_code": "8544.49", "hsn_kind": "Product", "tax_category": "STANDARD_VAT", "category_rate": "7.5", "quantity_code": "MTR", "item_tax_rates": {}}
 	]
 }

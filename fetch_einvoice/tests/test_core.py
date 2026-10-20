@@ -37,9 +37,10 @@ def load_invoice(name):
 		payment_mode_types=tuple(raw["payment_mode_types"]),
 		customer=core.Party(**raw["customer"]),
 		address=core.Address(**raw["address"]) if raw["address"] else None,
-		taxes=tuple(core.TaxRow(t["charge_type"], Decimal(t["rate"]), t["included_in_print_rate"]) for t in raw["taxes"]),
+		taxes=tuple(core.TaxRow(**dict(t, rate=Decimal(t["rate"]))) for t in raw["taxes"]),
 		lines=tuple(core.Line(**dict(
-			line, qty=Decimal(line["qty"]), net_amount=Decimal(line["net_amount"]), tax_rate=_decimal(line["tax_rate"])))
+			line, qty=Decimal(line["qty"]), net_amount=Decimal(line["net_amount"]), category_rate=_decimal(line["category_rate"]),
+			item_tax_rates={account: Decimal(rate) for account, rate in line["item_tax_rates"].items()}))
 			for line in raw["lines"]),
 	))
 
@@ -185,7 +186,7 @@ def as_return(original, name, rows):
 		share = money(line.net_amount * qty / line.qty)
 		lines.append(dataclasses.replace(
 			line, row_name="{}-{}".format(name, index), qty=-Decimal(qty), net_amount=-share, original_row_name=line.row_name))
-	gross = sum(money(abs(l.net_amount) * (1 + l.tax_rate / 100)) for l in lines)
+	gross = sum(money(abs(l.net_amount) * (1 + core.charged_rate(l, original.taxes) / 100)) for l in lines)
 	return dataclasses.replace(
 		original, name=name, is_return=True, return_against=original.name, return_against_date=original.posting_date,
 		posting_date=original.posting_date, lines=tuple(lines), grand_total=-gross, outstanding_amount=-gross,
@@ -267,6 +268,26 @@ class InvoicePayloadTests(unittest.TestCase):
 			{"taxableAmount": 1200.0, "taxAmount": 90.0, "taxCategory": {"id": "STANDARD_VAT", "percent": 7.5}},
 			{"taxableAmount": 500.0, "taxAmount": 0.0, "taxCategory": {"id": "ZERO_RATED", "percent": 0.0}}]}])
 		self.assertEqual(p["legalMonetaryTotal"]["payableAmount"], 1790.0)
+
+	def test_item_tax_template_rate_replaces_the_invoice_rate(self):
+		# mixed_rates charges 7.5%, but the manual's Item Tax Template sets VAT - MX to 0%.
+		self.assertEqual([(l["taxCategory"], l["taxRate"]) for l in payload("mixed_rates")["invoiceLine"]],
+			[("STANDARD_VAT", 7.5), ("ZERO_RATED", 0.0), ("STANDARD_VAT", 7.5)])
+
+	def test_tax_rate_follows_the_invoice_not_the_category(self):
+		inv = dataclasses.replace(load_invoice("standard"), taxes=(core.TaxRow("On Net Total", Decimal("5"), False, "VAT - MX"),))
+		p = core.build_invoice_payload(inv)
+		self.assertEqual([(l["taxCategory"], l["taxRate"]) for l in p["invoiceLine"]], [("STANDARD_VAT", 5.0), ("STANDARD_VAT", 5.0)])
+		self.assertEqual(p["taxTotal"][0]["taxSubtotal"][0]["taxCategory"], {"id": "STANDARD_VAT", "percent": 5.0})
+		self.assertEqual(p["legalMonetaryTotal"]["payableAmount"], 3076.74)
+
+	def test_on_net_total_rows_add_up_and_templates_replace_one_account(self):
+		inv = dataclasses.replace(load_invoice("standard"), taxes=(
+			core.TaxRow("On Net Total", Decimal("5"), False, "VAT - MX"), core.TaxRow("On Net Total", Decimal("2.5"), False, "Levy - MX")))
+		self.assertEqual([l["taxRate"] for l in core.build_invoice_payload(inv)["invoiceLine"]], [7.5, 7.5])
+		self.assertEqual(core.invoice_problems(inv), [])
+		no_levy = replace_line(inv, 0, item_tax_rates={"Levy - MX": Decimal("0")})
+		self.assertEqual([l["taxRate"] for l in core.build_invoice_payload(no_levy)["invoiceLine"]], [5.0, 7.5])
 
 	def test_pos_paid_in_full(self):
 		p = payload("pos_paid")
@@ -413,12 +434,14 @@ class ProblemTests(unittest.TestCase):
 			"Debit notes can't be sent to FETCH, which only accepts invoices and returns (credit notes)."])
 
 	def test_every_problem_is_listed_at_once(self):
-		inv = replace_line(load_invoice("standard"), 0, hsn_code=None, tax_category=None, tax_rate=None)
+		inv = replace_line(load_invoice("standard"), 0, hsn_code=None, tax_category=None, category_rate=None)
 		inv = dataclasses.replace(
 			inv, currency="JPY", customer=dataclasses.replace(inv.customer, email="", phone=""), address=None,
-			taxes=(core.TaxRow("Actual", Decimal("0"), False),), grand_total=Decimal("3000.00"))
+			taxes=(core.TaxRow("Actual", Decimal("0"), False, "VAT - MX"),), grand_total=Decimal("2930.23"))
 		self.assertEqual(core.invoice_problems(inv), [
 			"Sales Taxes and Charges row 1 is “Actual”. FETCH needs every tax row to be “On Net Total”.",
+			"Item row 2 (SVC-INSTALL): FIRS Tax Category STANDARD_VAT is 7.5%, but the invoice charges 0% on this item. "
+			"Fix the rate in Sales Taxes and Charges or the Item Tax Template, or pick the FIRS Tax Category that matches.",
 			"Currency JPY isn't accepted by FETCH. Use USD, NGN, GBP, EUR or CAD.",
 			"Customer email is missing. Set Contact Email on the invoice, or Email Id on the Customer.",
 			"Customer mobile number is missing. Set Mobile No on the invoice's contact.",
@@ -427,9 +450,18 @@ class ProblemTests(unittest.TestCase):
 			"Item row 1 (WIDGET-01): FIRS Tax Category is missing.",
 		])
 
-	def test_category_without_rate(self):
-		inv = replace_line(load_invoice("standard"), 1, tax_rate=None)
-		self.assertIn("Item row 2 (SVC-INSTALL): FIRS Tax Category STANDARD_VAT has no tax rate.", core.invoice_problems(inv))
+	def test_category_without_rate_is_not_checked(self):
+		inv = replace_line(load_invoice("standard"), 1, tax_category="EXEMPTED", category_rate=None)
+		self.assertEqual(core.invoice_problems(inv), [])
+
+	def test_category_rate_that_differs_from_the_invoice_is_reported(self):
+		# The invoice charges 5%, so its Grand Total matches its items and only the FIRS Tax Category is wrong.
+		inv = dataclasses.replace(load_invoice("standard"), grand_total=Decimal("3076.74"),
+			taxes=(core.TaxRow("On Net Total", Decimal("5.00"), False, "VAT - MX"),))
+		advice = "Fix the rate in Sales Taxes and Charges or the Item Tax Template, or pick the FIRS Tax Category that matches."
+		self.assertEqual(core.invoice_problems(inv), [
+			"Item row 1 (WIDGET-01): FIRS Tax Category STANDARD_VAT is 7.5%, but the invoice charges 5% on this item. " + advice,
+			"Item row 2 (SVC-INSTALL): FIRS Tax Category STANDARD_VAT is 7.5%, but the invoice charges 5% on this item. " + advice])
 
 	def test_lowercase_tax_category_code(self):
 		inv = replace_line(load_invoice("standard"), 0, tax_category="vat")
@@ -448,8 +480,7 @@ class ProblemTests(unittest.TestCase):
 	def test_grand_total_mismatch_is_reported(self):
 		five_percent = dataclasses.replace(load_invoice("standard"), grand_total=Decimal("3076.74"))
 		self.assertEqual(core.invoice_problems(five_percent), [
-			"Grand Total 3076.74 doesn't match the items plus tax at their FIRS Tax Category rates (3150.00). "
-			"Check that each item's FIRS Tax Category rate is the rate the invoice charges."])
+			"Grand Total 3076.74 doesn't match the items plus their tax (3150.00)."])
 		two_cents = dataclasses.replace(load_invoice("bad_phone"), customer=load_invoice("standard").customer, grand_total=Decimal("1075.02"))
 		self.assertEqual(len(core.invoice_problems(two_cents)), 1)
 

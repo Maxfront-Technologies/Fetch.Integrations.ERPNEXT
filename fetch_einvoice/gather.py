@@ -1,4 +1,5 @@
 """The one place that reads Frappe records into core.Invoice."""
+import json
 from decimal import Decimal
 
 import frappe
@@ -36,7 +37,9 @@ def invoice_from_doc(si) -> core.Invoice:
 		),
 		address=_address(si.customer_address),
 		taxes=tuple(
-			core.TaxRow(charge_type=tax.charge_type, rate=_money(tax.rate), included_in_print_rate=bool(tax.included_in_print_rate))
+			core.TaxRow(
+				charge_type=tax.charge_type, rate=_money(tax.rate), included_in_print_rate=bool(tax.included_in_print_rate),
+				account_head=tax.account_head or "")
 			for tax in si.taxes
 		),
 		lines=tuple(_line(item) for item in si.items),
@@ -79,7 +82,7 @@ def _address(name):
 
 
 def _line(item) -> core.Line:
-	tax_rate = frappe.db.get_value("FIRS Tax Category", item.firs_tax_category, "tax_rate") if item.firs_tax_category else None
+	category_rate = flt(frappe.db.get_value("FIRS Tax Category", item.firs_tax_category, "tax_rate")) if item.firs_tax_category else 0
 	return core.Line(
 		row_name=item.name,
 		item_code=item.item_code or "",
@@ -92,6 +95,9 @@ def _line(item) -> core.Line:
 		hsn_code=item.firs_hsn_code or None,
 		hsn_kind=(frappe.db.get_value("FIRS HSN Code", item.firs_hsn_code, "kind") or None) if item.firs_hsn_code else None,
 		tax_category=item.firs_tax_category or None,
-		tax_rate=_money(tax_rate) if tax_rate is not None else None,
+		# Percent columns are NOT NULL DEFAULT 0 (frappe/database/schema.py), so 0 also means no rate was entered.
+		category_rate=_money(category_rate) if category_rate else None,
+		# ERPNext stores the Item Tax Template as {account_head: rate} JSON (taxes_and_totals.py _load_item_tax_rate).
+		item_tax_rates={account: _money(rate) for account, rate in json.loads(item.item_tax_rate or "{}").items()},
 		quantity_code=item.firs_quantity_code or None,
 	)
