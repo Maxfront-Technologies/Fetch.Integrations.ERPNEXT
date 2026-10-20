@@ -44,7 +44,7 @@ bench --site <site> install-app fetch_einvoice
 
 To update later, see [Update the app](#update-the-app).
 
-The install creates the FIRS doctypes, the FETCH doctypes, and the custom fields on Item, Sales Invoice Item, Customer and Sales Invoice. `bench migrate` re-applies the custom fields each time, and running it twice changes nothing.
+The install creates the FIRS doctypes, the FETCH doctypes, and the custom fields on Item, Sales Invoice Item, Item Tax Template, Customer and Sales Invoice. `bench migrate` re-applies the custom fields each time, and running it twice changes nothing.
 
 ## Install on Docker (frappe_docker)
 
@@ -144,7 +144,7 @@ Only invoices submitted while callbacks are enabled in FETCH get a callback. If 
 
 Every invoice line needs three FIRS codes. They live in three lists:
 
-- **FIRS Tax Category** holds a code such as `STANDARD_VAT`, a title, and the tax rate.
+- **FIRS Tax Category** holds a code such as `STANDARD_VAT`, a title, and an optional tax rate.
 - **FIRS HSN Code** holds the HS or service code, a description, and whether it is a Product or a Service.
 - **FIRS Quantity Code** holds the unit code, a title, and a description.
 
@@ -158,7 +158,11 @@ A background job downloads the three lists from the FIRS e-invoicing API once a 
 
 To load them straight after installing, click **Sync FIRS Codes** on FETCH Settings. The job never deletes a code FIRS drops, because Items may still link to it. FIRS gives no rate for most tax categories, and for those the job keeps the rate you entered. Errors are recorded in the Error Log under "FIRS code sync".
 
-Then open each Item and fill in the **FIRS e-Invoicing** section. Sales Invoice lines copy the codes from the Item, and you can change them on a line before you submit. The tax rate of the FIRS Tax Category must equal the rate the invoice charges, because FETCH adds the tax to each line at that rate.
+Then open each Item and fill in the **FIRS e-Invoicing** section. Sales Invoice lines copy the codes from the Item, and you can change them on a line before you submit.
+
+Each line is sent with the tax rate the invoice charges on it. That rate comes from the invoice's Sales Taxes and Charges rows, and from the line's Item Tax Template when it has one. The rate on the FIRS Tax Category is only a check, and a rate of 0 counts as no rate. When it is set and differs from the rate the invoice charges, ERPNext refuses to submit the invoice and names the line.
+
+An Item Tax Template has a **FIRS Tax Category** field too. When it is set, every invoice line that uses the template takes that category when the invoice is saved, in place of the Item's. Set it on templates such as a zero-rated one, so the category always matches the tax.
 
 ## What each invoice needs
 
@@ -171,6 +175,7 @@ While the app is enabled, ERPNext refuses to submit an invoice that FETCH would 
 - The three FIRS codes on every line, and a whole-number quantity.
 - Currency USD, NGN, GBP, EUR or CAD.
 - Tax rows of type "On Net Total" only.
+- A FIRS Tax Category rate, where one is set, equal to the rate the invoice charges on that line.
 
 Debit notes cannot be submitted while the app is enabled, because FETCH accepts only invoices and credit notes.
 

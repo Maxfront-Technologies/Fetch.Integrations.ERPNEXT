@@ -23,6 +23,7 @@ before_tests = "erpnext.setup.utils.before_tests"
 
 doc_events = {
 	"Sales Invoice": {
+		"validate": "fetch_einvoice.events.set_firs_tax_categories",
 		"before_submit": "fetch_einvoice.events.validate_sales_invoice",
 		"on_submit": "fetch_einvoice.events.queue_sales_invoice",
 		"on_cancel": "fetch_einvoice.events.cancel_outbox_rows",

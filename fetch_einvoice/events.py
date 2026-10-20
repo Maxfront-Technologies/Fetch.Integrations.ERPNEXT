@@ -6,6 +6,16 @@ from frappe.utils import escape_html, flt
 from fetch_einvoice import core, gather, outbox
 
 
+def set_firs_tax_categories(doc, method=None):
+	"""validate: a row with an Item Tax Template takes that template's FIRS Tax Category, since the template decides its tax."""
+	if not _in_scope(doc):
+		return
+	for item in doc.items:
+		category = item.item_tax_template and frappe.db.get_value("Item Tax Template", item.item_tax_template, "firs_tax_category")
+		if category:
+			item.firs_tax_category = category
+
+
 def validate_sales_invoice(doc, method=None):
 	"""before_submit: refuse an invoice FETCH would reject, listing every reason at once."""
 	if not _in_scope(doc):

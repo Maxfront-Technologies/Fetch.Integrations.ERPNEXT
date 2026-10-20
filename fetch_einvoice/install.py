@@ -24,6 +24,10 @@ CUSTOM_FIELDS = {
 		dict(fieldname="firs_quantity_code", label="FIRS Quantity Code", fieldtype="Link", options="FIRS Quantity Code",
 			fetch_from="item_code.firs_quantity_code", fetch_if_empty=1, insert_after="firs_tax_category"),
 	],
+	"Item Tax Template": [
+		dict(fieldname="firs_tax_category", label="FIRS Tax Category", fieldtype="Link", options="FIRS Tax Category",
+			insert_after="title"),
+	],
 	"Customer": [
 		dict(fieldname="firs_business_description", label="FIRS Business Description", fieldtype="Small Text",
 			insert_after="tax_id"),
