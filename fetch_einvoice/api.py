@@ -64,9 +64,15 @@ def receive_fetch_irn():
 	frappe.enqueue("fetch_einvoice.outbox.wake", sales_invoice=name, enqueue_after_commit=True)
 
 
+def _require(doctype, ptype, name):
+	# frappe.has_permission(throw=True) formats its message from doc.doctype, so a name string turns a denial into a 500.
+	if not frappe.has_permission(doctype, ptype, name):
+		frappe.throw(_("Not permitted"), frappe.PermissionError)
+
+
 @frappe.whitelist(methods=["POST"])
 def resend_invoice(sales_invoice):
-	frappe.has_permission("Sales Invoice", "submit", sales_invoice, throw=True)
+	_require("Sales Invoice", "submit", sales_invoice)
 	name = frappe.db.get_value(outbox.OUTBOX, {"kind": "Invoice", "sales_invoice": sales_invoice}, "name")
 	if not name or not outbox.retry(name):
 		frappe.throw(_("{0} has no failed FETCH submission to resend.").format(sales_invoice))
@@ -74,14 +80,14 @@ def resend_invoice(sales_invoice):
 
 @frappe.whitelist(methods=["POST"])
 def retry(name):
-	frappe.has_permission(outbox.OUTBOX, "write", name, throw=True)
+	_require(outbox.OUTBOX, "write", name)
 	if not outbox.retry(name):
 		frappe.throw(_("FETCH Outbox {0} has not failed, so there is nothing to retry.").format(name))
 
 
 @frappe.whitelist()
 def payment_accepted_by_fetch(payment_entry):
-	frappe.has_permission("Payment Entry", "read", payment_entry, throw=True)
+	_require("Payment Entry", "read", payment_entry)
 	return bool(frappe.db.exists(outbox.OUTBOX, {
 		"reference_doctype": "Payment Entry",
 		"reference_name": payment_entry,

@@ -6,7 +6,7 @@ from decimal import Decimal
 import frappe
 import requests
 from frappe import _
-from frappe.utils import add_to_date, getdate, now, now_datetime
+from frappe.utils import add_to_date, escape_html, getdate, now, now_datetime
 
 from fetch_einvoice import core, gather
 
@@ -94,9 +94,16 @@ def wake(sales_invoice):
 
 def retry(name):
 	"""Failed → Pending with a fresh attempt count. Returns False when the row is not Failed."""
-	if not _transition(name, "Pending", attempts=0, next_attempt_at=None, error=None):
+	row = frappe.db.get_value(OUTBOX, name, ["kind", "sales_invoice", "response_code"], as_dict=True)
+	if not row:
 		return False
-	row = frappe.db.get_value(OUTBOX, name, ["kind", "sales_invoice"], as_dict=True)
+	fields = dict(attempts=0, next_attempt_at=None, error=None)
+	# FETCH records nothing for a payment it refused with a 4xx, so the retry may recompute it. After timeouts
+	# FETCH may have stored it, and only a byte-identical replay is accepted.
+	if row.kind == "Payment" and 400 <= (row.response_code or 0) < 500:
+		fields["payload"] = None
+	if not _transition(name, "Pending", **fields):
+		return False
 	if row.kind == "Invoice":
 		_set_invoice_status(row.sales_invoice, "Pending")
 	_enqueue_send(name)
@@ -121,6 +128,8 @@ def _transition(name, to, **fields):
 	status = frappe.db.get_value(OUTBOX, name, "status", for_update=True)
 	if to not in TRANSITIONS.get(status, ()):
 		return False
+	if fields.get("error"):
+		fields["error"] = escape_html(fields["error"])
 	fields["status"] = to
 	frappe.db.set_value(OUTBOX, name, fields)
 	return True
@@ -140,7 +149,7 @@ def _claim(name):
 		# Not ready is not an attempt. The IRN callback wakes it sooner than this.
 		frappe.db.set_value(OUTBOX, name, {
 			"next_attempt_at": add_to_date(now_datetime(), minutes=NOT_READY_MINUTES),
-			"error": waiting,
+			"error": escape_html(waiting),
 		})
 		return None
 	row.attempts += 1
@@ -176,7 +185,8 @@ def _record(row, code, body):
 	outcome, message = core.classify_response(row.kind, code, body)
 	to = OUTCOME_STATUS[outcome]
 	fields = {
-		"response_code": code,
+		# v13 makes Int columns NOT NULL, so 0 stands for "FETCH never answered".
+		"response_code": code or 0,
 		"response_body": (body or "")[:RESPONSE_BODY_LIMIT],
 		"error": None if outcome is core.Outcome.ACCEPTED else message,
 	}
@@ -191,6 +201,9 @@ def _record(row, code, body):
 
 
 def _set_invoice_status(sales_invoice, status):
+	# Callers hold the Outbox row lock, and on_cancel locks the Sales Invoice before the Outbox row. Committing
+	# first means no transaction ever waits for one while holding the other.
+	frappe.db.commit()
 	frappe.db.sql(
 		"""update `tabSales Invoice` set fetch_status = %s
 		where name = %s and ifnull(fetch_irn, '') = ''""",
@@ -225,7 +238,10 @@ def _payment_waiting_for(row):
 
 
 def _invoice_payload(row):
-	return core.build_invoice_payload(gather.invoice_from_doc(frappe.get_doc("Sales Invoice", row.sales_invoice)))
+	si = frappe.get_doc("Sales Invoice", row.sales_invoice)
+	# Payments made after submit reach FETCH as payments, so the deposit is what was paid when it was submitted.
+	si.outstanding_amount = row.amount
+	return core.build_invoice_payload(gather.invoice_from_doc(si))
 
 
 def _payment_payload(row):

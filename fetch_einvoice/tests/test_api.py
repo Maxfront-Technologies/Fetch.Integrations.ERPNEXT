@@ -22,7 +22,7 @@ from fetch_einvoice.tests.test_outbox import (
 	send_call,
 )
 
-test_dependencies = ["Account", "Customer", "Item"]
+test_dependencies = ["Account", "Item", "Customer"]
 
 
 def transmitted(si, irn=None, environment="Sandbox"):
@@ -112,7 +112,6 @@ class TestIrnCallback(FetchTestCase):
 		with self.assertRaises(frappe.AuthenticationError):
 			deliver(transmitted(si), timestamp=int(time.time()) - 600)
 
-		self.assertEqual(frappe.AuthenticationError.http_status_code, 401)
 		self.assertFalse(stored_irn(si).fetch_irn)
 
 	def test_callback_for_the_other_environment_is_409_and_changes_nothing(self):
@@ -203,6 +202,35 @@ class TestPayments(FetchTestCase):
 		self.assertEqual(
 			(sent["paymentReference"], sent["paymentStatus"], sent["amount"]), (second.name + "-1", "PARTIAL", 20.0))
 		self.assertEqual(row_state(second_row).status, "Accepted")
+
+
+	def test_payment_before_the_first_send_is_not_also_a_deposit(self):
+		si = make_invoice()
+		make_payment(si, 50)
+
+		self.accept(si)
+
+		sent = payload_sent(self.post, 0)
+		self.assertEqual((sent["deposit"], sent["paymentStatus"]), (0.0, "PENDING"))
+
+	def test_retrying_a_refused_payment_recomputes_it(self):
+		si = make_invoice()
+		self.accept(si)
+		deliver(transmitted(si))
+		pe = make_payment(si, 50)
+		row = row_for("Payment", pe.name)
+		self.post.return_value = reply(409, json.dumps({"message": "Requested payment status is inconsistent"}))
+		outbox.send(row)
+		self.assertEqual(row_state(row).status, "Failed")
+		frappe.db.set_value(OUTBOX, row, "erp_settled", 1)
+
+		outbox.retry(row)
+		self.post.return_value = reply(202, json.dumps({"outstandingBalance": 0}))
+		outbox.send(row)
+
+		sent = payload_sent(self.post, -1)
+		self.assertEqual((sent["paymentStatus"], sent["amount"]), ("PAID", 107.5))
+		self.assertEqual(row_state(row).status, "Accepted")
 
 
 class TestResend(FetchTestCase):

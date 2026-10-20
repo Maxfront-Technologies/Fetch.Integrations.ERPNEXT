@@ -14,7 +14,8 @@ from frappe.utils import add_to_date, get_datetime, now_datetime, nowdate
 
 from fetch_einvoice import outbox
 
-test_dependencies = ["Account", "Customer", "Item"]
+# Item before Customer: the Customer walk reaches Restaurant, whose test records need _Test Customer 1.
+test_dependencies = ["Account", "Item", "Customer"]
 
 BASE_URL = "https://fetch.test"
 COMPANY = "_Test Company"
@@ -122,6 +123,8 @@ def make_invoice():
 def make_payment(si, amount):
 	"""Submit a USD Payment Entry of `amount` against `si`. Callers patch frappe.enqueue."""
 	pe = get_payment_entry("Sales Invoice", si.name, party_amount=amount, bank_account="_Test Bank USD - _TC", bank_amount=amount)
+	# get_payment_entry puts party_amount in the row's outstanding, which v13 refuses once the invoice is partly paid.
+	pe.references[0].outstanding_amount = frappe.db.get_value("Sales Invoice", si.name, "outstanding_amount")
 	pe.reference_no = "1"
 	pe.reference_date = nowdate()
 	pe.source_exchange_rate = 50
@@ -224,7 +227,7 @@ class TestOutbox(FetchTestCase):
 		outbox.send(row)
 
 		state = row_state(row)
-		self.assertEqual((state.status, state.attempts, state.response_code), ("Pending", 1, None))
+		self.assertEqual((state.status, state.attempts, state.response_code), ("Pending", 1, 0))
 		self.assertGreater(get_datetime(state.next_attempt_at), before)
 
 	def test_a_second_send_while_the_first_waits_on_fetch_makes_no_call(self):

@@ -22,7 +22,10 @@ def queue_sales_invoice(doc, method=None):
 	"""on_submit: queue the invoice, an amended one included, for FETCH."""
 	if not _in_scope(doc):
 		return
-	outbox.create(kind="Invoice", reference_doctype=doc.doctype, reference_name=doc.name, sales_invoice=doc.name)
+	# amount keeps outstanding_amount as of submit, so a payment taken before the first send is not also a deposit.
+	outbox.create(
+		kind="Invoice", reference_doctype=doc.doctype, reference_name=doc.name, sales_invoice=doc.name,
+		amount=doc.outstanding_amount)
 	# update_modified=False keeps the just-submitted form current, so the user can cancel or amend it at once.
 	frappe.db.set_value("Sales Invoice", doc.name, "fetch_status", "Pending", update_modified=False)
 	doc.fetch_status = "Pending"
@@ -61,7 +64,7 @@ def cancel_outbox_rows(doc, method=None):
 		return
 	cancelled = [row.name for row in rows if outbox.cancel(row.name)]
 	accepted = [row.name for row in rows if row.status == "Accepted"]
-	in_flight = [row.name for row in rows if row.status == "Sending"]
+	in_flight = [row.name for row in rows if row.name not in cancelled and row.status not in ("Accepted", "Cancelled")]
 	notes = []
 	if cancelled:
 		notes.append(_("These FETCH Outbox rows had not reached FETCH and are now cancelled: {0}.").format(
@@ -77,5 +80,8 @@ def cancel_outbox_rows(doc, method=None):
 
 
 def _in_scope(doc):
+	# ERPNext submits consolidated POS invoices itself, for walk-in customers FETCH cannot accept; refusing them would stop POS closing.
+	if doc.get("is_consolidated"):
+		return False
 	settings = frappe.get_single(outbox.SETTINGS)
 	return bool(settings.enabled) and (not settings.company or settings.company == doc.company)

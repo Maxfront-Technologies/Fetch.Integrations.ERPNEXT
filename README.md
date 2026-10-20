@@ -20,22 +20,67 @@ You need:
 
 ## Install the app
 
-`bench get-app` needs a git URL. If this folder is in a git repository you can reach, run:
+The app's folder in the bench must be named `fetch_einvoice`. `bench get-app` names the folder after the repository. When the repository name contains dots, as in `Fetch.Integrations.ERPNEXT`, bench cuts the name at the first dot and fails with `No such file or directory: apps/Fetch/setup.py`. Clone the repository into the right folder instead:
 
 ```bash
-bench get-app <git-url-of-the-repository>
+cd ~/frappe-bench
+git clone https://github.com/Maxfront-Technologies/Fetch.Integrations.ERPNEXT apps/fetch_einvoice
+./env/bin/pip install -e apps/fetch_einvoice
+grep -qx fetch_einvoice sites/apps.txt || echo fetch_einvoice >> sites/apps.txt
+bench --site <site> install-app fetch_einvoice
+bench restart
+```
+
+- Before appending to `sites/apps.txt`, make sure the file ends with a newline (`tail -c1 sites/apps.txt | od -c`). If it doesn't, run `echo >> sites/apps.txt` first.
+- In development, restart `bench start` instead of running `bench restart`.
+- If a failed `bench get-app` left `apps/Fetch.Integrations.ERPNEXT` behind, delete it first with `rm -rf apps/Fetch.Integrations.ERPNEXT`.
+
+If the repository is renamed to `fetch_einvoice`, a plain `bench get-app` works:
+
+```bash
+bench get-app https://github.com/Maxfront-Technologies/fetch_einvoice
 bench --site <site> install-app fetch_einvoice
 ```
 
-Otherwise copy the folder into the bench:
-
-1. Copy `ThirdParty/erpnext/fetch_einvoice` to `frappe-bench/apps/fetch_einvoice`.
-2. From `frappe-bench`, install the Python package with `./env/bin/pip install -e apps/fetch_einvoice`. On benches that have it, `bench pip install -e apps/fetch_einvoice` does the same.
-3. Add the app to `sites/apps.txt` on a line of its own: `echo fetch_einvoice >> sites/apps.txt`. First make sure the file ends with a newline.
-4. Install it on the site: `bench --site <site> install-app fetch_einvoice`.
-5. Restart the bench so the web and worker processes load the app. Use `bench restart` in production, or restart `bench start` in development.
+To update later, see [Update the app](#update-the-app).
 
 The install creates the FIRS doctypes, the FETCH doctypes, and the custom fields on Item, Sales Invoice Item, Customer and Sales Invoice. `bench migrate` re-applies the custom fields each time, and running it twice changes nothing.
+
+## Update the app
+
+Run these from `frappe-bench`:
+
+```bash
+cd ~/frappe-bench
+bench --site <site> backup
+git -C apps/fetch_einvoice pull
+./env/bin/pip install -e apps/fetch_einvoice
+bench --site <site> migrate
+bench restart
+```
+
+- `bench --site <site> backup` saves the database to `sites/<site>/private/backups` so you can roll back.
+- `git pull` fetches the new code. If it refuses because of local changes in `apps/fetch_einvoice`, run `git -C apps/fetch_einvoice status` and decide whether to keep them (`git stash`) or discard them before pulling again.
+- `pip install -e` picks up any new Python dependencies. When `requirements.txt` hasn't changed it does nothing harmful.
+- `bench migrate` updates the doctypes, runs any patches, re-applies the custom fields and clears the cache. Run it on every site that has the app, or use `bench --site all migrate`.
+- `bench restart` makes the web and background workers load the new code. Until you restart, the workers that send to FETCH keep running the old code. In development, restart `bench start` instead.
+
+Check the update took effect with `bench version`, which lists `fetch_einvoice` with its version number. Users with a Sales Invoice or Payment Entry form open should reload the page to get the new form scripts.
+
+FETCH Settings, the FETCH Outbox and the FIRS codes are stored in the database, so an update keeps them.
+
+To roll back, check out the previous version and migrate again:
+
+```bash
+git -C apps/fetch_einvoice log --oneline -5
+git -C apps/fetch_einvoice checkout <previous-commit>
+bench --site <site> migrate
+bench restart
+```
+
+If the newer version changed data, restore the backup with `bench --site <site> restore <path-to-backup.sql.gz>`. To go back to tracking the latest code, run `git -C apps/fetch_einvoice checkout main`.
+
+If you installed with `bench get-app`, `bench update --pull` also updates the app, but it updates Frappe and ERPNext too. Use the steps above to update only this app.
 
 ## Turn off any old FETCH webhook
 
@@ -113,6 +158,7 @@ Cancelling an invoice or payment that FETCH has accepted shows a warning and the
 ## Known gaps
 
 - Only Payment Entries are sent. Journal Entries, Payment Reconciliation and advances allocated later are not.
+- Consolidated POS invoices, the ones ERPNext creates itself at POS closing, are neither checked nor sent. They are usually for walk-in customers without the TIN and contact details FETCH needs, and refusing them would stop POS closing.
 - A Payment Entry in a different currency from its invoice fails, with a message on the FETCH Outbox row.
 - FETCH sends no callback when NRS rejects an invoice. Such an invoice stays Submitted. Find it with the FETCH Status filter and retransmit it from FETCH. A later success still sends the callback.
 - FETCH's PAID rule ignores credit notes, so the final payment on an invoice that has a credit note gets HTTP 409 until FETCH fixes it.

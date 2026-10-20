@@ -18,6 +18,8 @@ doctype_js = {
 
 after_install = "fetch_einvoice.install.setup"
 after_migrate = "fetch_einvoice.install.setup"
+# run-tests --app runs only this app's before_tests, so ERPNext's setup (company, fixtures) would never happen.
+before_tests = "erpnext.setup.utils.before_tests"
 
 doc_events = {
 	"Sales Invoice": {

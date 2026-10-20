@@ -9,7 +9,7 @@ from fetch_einvoice import core
 
 def invoice_from_doc(si) -> core.Invoice:
 	customer = frappe.db.get_value(
-		"Customer", si.customer, ["email_id", "firs_business_description"], as_dict=True) or frappe._dict()
+		"Customer", si.customer, ["tax_id", "email_id", "firs_business_description"], as_dict=True) or frappe._dict()
 	original_date = frappe.db.get_value("Sales Invoice", si.return_against, "posting_date") if si.return_against else None
 	return core.Invoice(
 		name=si.name,
@@ -24,11 +24,12 @@ def invoice_from_doc(si) -> core.Invoice:
 		return_against_date=getdate(original_date) if original_date else None,
 		grand_total=_money(si.grand_total),
 		rounded_total=_money(si.rounded_total) if flt(si.rounded_total) and not si.disable_rounded_total else None,
-		outstanding_amount=_money(si.outstanding_amount),
+		outstanding_amount=_money(_outstanding_in_invoice_currency(si)),
 		payment_mode_types=_payment_mode_types(si),
 		customer=core.Party(
 			name=si.customer_name or si.customer,
-			tin=si.tax_id or "",
+			# v13 copies Customer.tax_id onto the invoice only in the desk form (sales_invoice.js add_fetch).
+			tin=si.tax_id or customer.tax_id or "",
 			email=si.contact_email or customer.email_id or "",
 			phone=si.contact_mobile or "",
 			business_description=customer.firs_business_description or "",
@@ -44,6 +45,14 @@ def invoice_from_doc(si) -> core.Invoice:
 
 def _money(value) -> Decimal:
 	return Decimal(str(flt(value)))
+
+
+def _outstanding_in_invoice_currency(si):
+	# ERPNext keeps outstanding_amount in the receivable account's currency (taxes_and_totals.py).
+	outstanding = flt(si.outstanding_amount)
+	if si.party_account_currency and si.party_account_currency != si.currency:
+		outstanding = outstanding / (flt(si.conversion_rate) or 1)
+	return flt(outstanding, 2)
 
 
 def _payment_mode_types(si):
